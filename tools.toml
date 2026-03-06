@@ -1,0 +1,60 @@
+# RTL Simulation Tools Configuration
+# Each [[simulators]] block defines one simulation tool
+
+# SSH Configuration (used when running in Docker)
+[ssh]
+enabled  = false          # Set true when running inside Docker
+host     = "192.168.1.100"
+port     = 22
+user     = "rtluser"
+key_file = "~/.ssh/id_rsa"
+# password = ""           # Alternative to key_file (not recommended)
+
+# ── Synopsys VCS ──────────────────────────────────────────────────────────────
+[[simulators]]
+name        = "vcs"
+description = "Synopsys VCS RTL Simulator (commercial)"
+use_ssh     = true        # Must run on host that has VCS license
+work_dir    = "/home/rtluser/sim_work"  # default working directory
+
+[[simulators.commands]]
+name        = "compile"
+description = "Compile RTL sources with VCS. Args: files (space-separated RTL files), top (top module name), opts (extra VCS options, optional)"
+template    = "vcs -full64 -sverilog -ntb_opts uvm-1.2 +define+SIM {opts} -top {top} {files} -o simv 2>&1 | tee compile.log"
+
+[[simulators.commands]]
+name        = "simulate"
+description = "Run VCS simulation binary. Args: plusargs (UVM/testbench plusargs, optional), timeout (timeout in seconds, optional, default 3600)"
+template    = "./simv -l sim.log {plusargs}"
+
+[[simulators.commands]]
+name        = "compile_and_run"
+description = "One-shot compile + simulate. Args: files, top, testname, plusargs (optional)"
+template    = "vcs -full64 -sverilog -ntb_opts uvm-1.2 -top {top} {files} -o simv && ./simv +UVM_TESTNAME={testname} {plusargs} -l sim.log"
+
+[[simulators.commands]]
+name        = "view_waves"
+description = "Open DVE waveform viewer on a VCD/FSDB file. Args: wave_file"
+template    = "dve -vpd {wave_file} &"
+
+[[simulators.commands]]
+name        = "check_log"
+description = "Grep simulation log for errors/warnings. Args: log_file (default sim.log)"
+template    = "grep -E '(UVM_ERROR|UVM_FATAL|Error|ERROR|FATAL)' {log_file}"
+
+# ── Only For Test ──────────────────────────────────────────────────────────────
+[[simulators]]
+name        = "Test"
+description = "Test tool"
+use_ssh     = false
+work_dir    = "/home/usr/ICtools"
+
+[[simulators.commands]]
+name        = "ls"
+description = "test command ls"
+template    = "ls"
+
+[[simulators.commands]]
+name        = "uname"
+description = "test command uname"
+template    = "uname -a"

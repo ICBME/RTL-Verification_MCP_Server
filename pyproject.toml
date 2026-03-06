@@ -1,0 +1,11 @@
+[project]
+name = "mcp-vcs"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "asyncssh>=2.22.0",
+    "mcp[cli]>=1.26.0",
+    "paramiko>=4.0.0",
+]
