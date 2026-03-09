@@ -22,40 +22,36 @@ Execution flow:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 from contextvars import ContextVar
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
+
 from pydantic import Field
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.path.insert(0, str(Path(__file__).parent / "mcp-local-test"))
 from config import ServerConfig, SimulatorDef, load_config
 from executor import CommandExecutor, extract_template_params, render_template
 from skills import SkillsManager
 from workspace import WorkspaceManager
+from session import workspace_key
+from metadata import init_or_bind_workspace, load_metadata, save_metadata, utc_now_iso
+from remote import ensure_remote_workspace, finalize_remote_sync
+from sync import sync_directory_with_rsync
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ── Session ID ───────────────────────────────────────────────────
-# 在上下文中传递mcp-session-id
-_current_session_id: ContextVar[str] = ContextVar("current_session_id", default="")
-
-
-def _session() -> str:
-    """Return the MCP session ID for the current request."""
-    ssid = _current_session_id.get()
-    if not ssid:
-        raise RuntimeError(
-            "No MCP session ID available. "
-            "This server requires streamable-http transport."
-        )
-    return ssid
+_session_id: ContextVar[Optional[str]] = ContextVar("mcp_session_id", default=None)
 
 # ── Session context middleware ─────────────────────────────────────────────────
-
+'''
 class SessionIDMiddleware:
     """
     Reads ``mcp-session-id`` from the incoming request headers and stores it
@@ -79,6 +75,19 @@ class SessionIDMiddleware:
                 _current_session_id.reset(token)
         else:
             await self.app(scope, receive, send)
+'''
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class SessionIDMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        # 捕获session-id        
+        session_id = request.headers.get('mcp-session-id')
+        token = _session_id.set(session_id)
+        response = await call_next(request)
+        if session_id:
+            logger.info(f" 响应 Session ID: {_session_id.get()}")
+            logger.info(f"状态码: {response.status_code}")
+        return response
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -169,6 +178,7 @@ def build_server(
 
     @mcp.tool()
     def init_workspace(
+        ctx: Context,
         topic: Annotated[
             str,
             Field(description=(
@@ -195,10 +205,11 @@ def build_server(
         If the workspace already exists for this session, the existing path is
         returned with a fresh sync command."""
         try:
-            ws = ws_mgr.get_or_create(_session(), topic)
+            wkey = workspace_key(ctx)
+            ws = ws_mgr.get_or_create(wkey, topic)
             # Update topic label if a new one is provided
             if topic and topic != ws.topic:
-                ws = ws_mgr.set_topic(_session(), topic)
+                ws = ws_mgr.set_topic(wkey, topic)
             sync_info = ws_mgr.build_sync_info(ws, cfg.sync, local_source)
             return "\n".join([
                 ws.summary(),
@@ -207,6 +218,107 @@ def build_server(
             ])
         except Exception as exc:
             return f"[error] {exc}"
+
+    @mcp.tool()
+    def bind_workspace(
+        root_path: Annotated[
+            str,
+            Field(description="Absolute path of local source root. Metadata is stored in .mcp/workspace.json."),
+        ],
+        remote_server: Annotated[
+            str,
+            Field(description="Remote MCP server URL, for example http://127.0.0.1:8000/mcp."),
+        ],
+        remote_host: Annotated[
+            str,
+            Field(description="Remote host name or IP used by rsync/ssh."),
+        ],
+        remote_base_dir: Annotated[
+            str,
+            Field(description="Remote workspace root directory, for example /data/workspaces."),
+        ],
+        on_existing: Annotated[
+            Literal["ask", "reuse", "overwrite", "fail"],
+            Field(description="Policy when metadata already exists: ask, reuse, overwrite, or fail."),
+        ] = "ask",
+    ) -> dict:
+        """Bind a local source directory to a topic_id and write .mcp/workspace.json."""
+        return init_or_bind_workspace(
+            root_path=root_path,
+            remote_server=remote_server,
+            remote_host=remote_host,
+            remote_base_dir=remote_base_dir,
+            on_existing=on_existing,
+        )
+
+    @mcp.tool()
+    async def sync_workspace(
+        root_path: Annotated[
+            str,
+            Field(description="Absolute path of the local source directory that is already bound."),
+        ],
+        ssh_user: Annotated[
+            str,
+            Field(description="SSH user name for rsync."),
+        ],
+        ssh_port: Annotated[
+            int,
+            Field(description="SSH port number.", ge=1, le=65535),
+        ] = 22,
+        delete: Annotated[
+            bool,
+            Field(description="Delete remote files that do not exist locally (rsync --delete)."),
+        ] = False,
+        dry_run: Annotated[
+            bool,
+            Field(description="Run sync as preview only without writing remote files."),
+        ] = True,
+        remote_base_dir_override: Annotated[
+            Optional[str],
+            Field(description="Optional override for remote_base_dir from local metadata."),
+        ] = None,
+    ) -> dict:
+        """Ensure remote workspace, run rsync, and optionally finalize sync."""
+        root = Path(root_path).resolve()
+        meta = load_metadata(root)
+        if meta is None:
+            raise RuntimeError("Workspace is not bound. Call bind_workspace first.")
+
+        remote_base_dir = remote_base_dir_override or meta.remote_base_dir
+
+        ensure_ret = await ensure_remote_workspace(
+            remote_server_url=meta.remote_server,
+            topic_id=meta.topic_id,
+            workspace_name=meta.workspace_name,
+            remote_base_dir=remote_base_dir,
+        )
+
+        rsync_ret = sync_directory_with_rsync(
+            root_path=str(root),
+            ssh_user=ssh_user,
+            ssh_host=meta.remote_host,
+            remote_base_dir=remote_base_dir,
+            ssh_port=ssh_port,
+            delete=delete,
+            dry_run=dry_run,
+        )
+
+        finalize_ret = None
+        if not dry_run:
+            finalize_ret = await finalize_remote_sync(
+                remote_server_url=meta.remote_server,
+                topic_id=meta.topic_id,
+            )
+            meta.last_sync_at = utc_now_iso()
+            save_metadata(root, meta)
+
+        return {
+            "status": "ok",
+            "topic_id": meta.topic_id,
+            "ensure_workspace": ensure_ret,
+            "rsync": rsync_ret,
+            "finalize": finalize_ret,
+        }
         
     # ── Unified execution ─────────────────────────────────────────────────────
 
@@ -320,7 +432,7 @@ def main() -> None:
 
     mcp = build_server(config_path=args.config, 
                        skills_dir=args.skills, 
-                       workspaces_root = args.workspaces_root
+                       workspaces_root = args.workspaces_root,
                        )
 
     if args.transport == "streamable-http":
@@ -339,11 +451,11 @@ def main() -> None:
 
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=allowed_origins,
+            #allow_origins=allowed_origins,
             allow_origin_regex = allow_origin_regex,
             allow_methods=["*"],
             allow_headers=["*"],
-            expose_headers=["mcp-session-id"]
+            expose_headers=["mcp-session-id"],
         )
 
         import uvicorn
