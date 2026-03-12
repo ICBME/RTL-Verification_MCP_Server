@@ -34,6 +34,7 @@ class WorkspaceMetadata:
     updated_at: str
     root_fingerprint: Optional[str]
     last_sync_at: Optional[str]
+    auth_token: Optional[str] = None
 
     @classmethod
     def new(
@@ -45,6 +46,7 @@ class WorkspaceMetadata:
         remote_base_dir: str,
         workspace_name: str,
         root_fingerprint: Optional[str] = None,
+        auth_token: Optional[str] = None,
     ) -> "WorkspaceMetadata":
         now = utc_now_iso()
         return cls(
@@ -58,6 +60,7 @@ class WorkspaceMetadata:
             updated_at=now,
             root_fingerprint=root_fingerprint,
             last_sync_at=None,
+            auth_token=auth_token,
         )
 
 
@@ -141,6 +144,7 @@ def init_or_bind_workspace(
     remote_server: str,
     remote_host: str,
     remote_base_dir: str,
+    auth_token: Optional[str] = None,
     on_existing: OnExisting = "ask",
 ) -> dict:
     root = Path(root_path).resolve()
@@ -189,6 +193,7 @@ def init_or_bind_workspace(
         remote_base_dir=remote_base_dir,
         workspace_name=root.name,
         root_fingerprint=compute_root_fingerprint(root),
+        auth_token=auth_token,
     )
     save_metadata(root, meta)
 

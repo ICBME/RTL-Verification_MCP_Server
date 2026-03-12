@@ -7,6 +7,11 @@ wheels/
 *.egg-info
 uv.lock
 .python-version
+mcp-local-test/__pycache__/
+mcp-local-test/.python-version
+mcp-local-test/uv.lock
 
 # Virtual environments
 .venv
+
+mcp-local-test/.mcp/
