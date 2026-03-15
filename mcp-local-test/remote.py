@@ -4,41 +4,17 @@ import time
 from typing import Any
 
 import httpx
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
 
 
 _PROBE_TTL_SECONDS = 10.0
 _last_probe_ok_at: dict[str, float] = {}
 
 
-def _extract_tool_result(result: Any) -> dict:
-    """
-    兼容 MCP Python SDK 常见的 tool result 结构。
-    优先返回结构化结果，其次回退到 data/content。
-    """
-    structured = getattr(result, "structuredContent", None)
-    if isinstance(structured, dict):
-        return structured
-
-    data = getattr(result, "data", None)
-    if isinstance(data, dict):
-        return data
-
-    content = getattr(result, "content", None)
-    if isinstance(content, list):
-        text_parts: list[str] = []
-        for item in content:
-            text = getattr(item, "text", None)
-            if isinstance(text, str) and text:
-                text_parts.append(text)
-        if text_parts:
-            return {"content": "\n".join(text_parts)}
-
-    if isinstance(result, dict):
-        return result
-
-    return {"result": str(result)}
+def _api_base_url(remote_server_url: str) -> str:
+    base = remote_server_url.rstrip("/")
+    if base.endswith("/mcp"):
+        base = base[:-4]
+    return base
 
 
 def _cache_key(remote_server_url: str, auth_token: str | None) -> str:
@@ -73,12 +49,11 @@ async def probe_remote_server(
             headers=headers or None,
             trust_env=False,
         ) as client:
-            async with streamable_http_client(
-                remote_server_url,
-                http_client=client,
-            ) as (read_stream, write_stream, _):
-                async with ClientSession(read_stream, write_stream) as session:
-                    await session.initialize()
+            response = await client.get(f"{_api_base_url(remote_server_url)}/api/health")
+            response.raise_for_status()
+            payload = response.json()
+            if payload.get("status") != "ok":
+                raise RuntimeError(f"Unexpected remote health response: {payload}")
     except Exception as exc:
         raise RuntimeError(
             f"Remote MCP server unreachable: {remote_server_url}"
@@ -87,9 +62,9 @@ async def probe_remote_server(
     _mark_probe_ok(remote_server_url, auth_token)
 
 
-async def _call_remote_tool(
+async def _post_remote_api(
     remote_server_url: str,
-    tool_name: str,
+    path: str,
     arguments: dict,
     auth_token: str | None = None,
 ) -> dict:
@@ -103,15 +78,16 @@ async def _call_remote_tool(
         headers=headers or None,
         trust_env=False,
     ) as client:
-        async with streamable_http_client(
-            remote_server_url,
-            http_client=client,
-        ) as (read_stream, write_stream, _):
-            async with ClientSession(read_stream, write_stream) as session:
-                await session.initialize()
-                result = await session.call_tool(tool_name, arguments)
-                _mark_probe_ok(remote_server_url, auth_token)
-                return _extract_tool_result(result)
+        response = await client.post(
+            f"{_api_base_url(remote_server_url)}{path}",
+            json=arguments,
+        )
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Unexpected remote API response: {result!r}")
+        _mark_probe_ok(remote_server_url, auth_token)
+        return result
 
 
 async def ensure_remote_workspace(
@@ -122,12 +98,9 @@ async def ensure_remote_workspace(
     remote_base_dir: str,
     auth_token: str | None = None,
 ) -> dict:
-    """
-    调用远程 MCP tool：ensure_workspace
-    """
-    return await _call_remote_tool(
+    return await _post_remote_api(
         remote_server_url,
-        "ensure_workspace",
+        "/api/workspaces/ensure",
         {
             "topic_id": topic_id,
             "workspace_name": workspace_name,
@@ -141,11 +114,15 @@ async def finalize_remote_sync(
     *,
     remote_server_url: str,
     topic_id: str,
+    remote_base_dir: str,
     auth_token: str | None = None,
 ) -> dict:
-    return await _call_remote_tool(
+    return await _post_remote_api(
         remote_server_url,
-        "finalize_sync",
-        {"topic_id": topic_id},
+        "/api/workspaces/finalize",
+        {
+            "topic_id": topic_id,
+            "remote_base_dir": remote_base_dir,
+        },
         auth_token=auth_token,
     )

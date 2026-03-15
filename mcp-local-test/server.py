@@ -154,9 +154,9 @@ async def sync_workspace(
     """
     Sync flow:
     1. Read local metadata to get topic_id.
-    2. Call remote MCP ensure_workspace.
+    2. Call remote workspace ensure API.
     3. Push local files by rsync.
-    4. Call remote MCP finalize_sync (when dry_run is false).
+    4. Call remote workspace finalize API (when dry_run is false).
     """
     common = CommonConfig.load()
     resolved_root = _require_value("root_path", root_path or common.root_path)
@@ -184,7 +184,7 @@ async def sync_workspace(
         )
     except Exception as exc:
         raise RuntimeError(
-            "远程 MCP 服务不可用或连接失败（ensure_workspace）。"
+            "远程服务不可用或连接失败（workspace ensure API）。"
             f" server={meta.remote_server}; detail={_flatten_exception_messages(exc)}"
         ) from exc
 
@@ -207,11 +207,12 @@ async def sync_workspace(
             finalize_ret = await finalize_remote_sync(
                 remote_server_url=meta.remote_server,
                 topic_id=meta.topic_id,
+                remote_base_dir=remote_base_dir,
                 auth_token=resolved_auth_token,
             )
         except Exception as exc:
             raise RuntimeError(
-                "远程 MCP 服务不可用或连接失败（finalize_sync）。"
+                "远程服务不可用或连接失败（workspace finalize API）。"
                 f" server={meta.remote_server}; detail={_flatten_exception_messages(exc)}"
             ) from exc
         meta.last_sync_at = utc_now_iso()
