@@ -58,7 +58,7 @@ def _lookup(cfg: ServerConfig, simulator: str, command: str) -> tuple[str, Simul
         raise ValueError(
             f"Unknown simulator '{simulator}'. "
             f"Available: {', '.join(cfg.simulators)}. "
-            "Read skills://simulators to see options."
+            "Call get_skill(name='simulators') to see options."
         )
     cmd_def = sim.get_command(command)
     if cmd_def is None:
@@ -94,31 +94,24 @@ def build_server(
 
     # ── Skills / discovery ────────────────────────────────────────────────────
 
-    @mcp.resource(
-        "skills://index",
-        name="skills-index",
-        description="Entry point for skill discovery. Read this first, then load a specific skill resource.",
-        mime_type="text/markdown",
-    )
-    def skills_index_resource() -> str:
-        return skills_mgr.skills_index_resource()
-
-    @mcp.resource(
-        "skills://simulators",
-        name="skills-simulators",
-        description="Simulator catalog and supported command templates.",
-        mime_type="text/markdown",
-    )
-    def simulators_resource() -> str:
-        return _simulators_markdown(cfg)
-
-    @mcp.resource(
-        "skills://{name}",
-        name="skill-detail",
-        description="Load one skill markdown by name.",
-        mime_type="text/markdown",
-    )
-    def skill_resource(name: str) -> str:
+    @mcp.tool()
+    def get_skill(
+        name: Annotated[
+            Optional[str],
+            Field(description=(
+                "Skill name to load. Omit to return the skill index. "
+                "Use 'simulators' to return the simulator catalog."
+            )),
+        ] = None,
+    ) -> str:
+        """Return skill guidance for the agent.
+        - Omit `name` to get the index and loading hints.
+        - Pass `name='simulators'` to get simulator and command catalog.
+        - Pass a skill name such as `vcs` to load that skill markdown."""
+        if not name:
+            return skills_mgr.skills_index()
+        if name.strip().lower() == "simulators":
+            return _simulators_markdown(cfg)
         return skills_mgr.load_skill(name)
 
     # ── Unified execution ─────────────────────────────────────────────────────
@@ -129,14 +122,14 @@ def build_server(
             str,
             Field(description=(
                 "Simulator name from tools.toml, e.g. 'vcs', 'iverilog', 'xcelium', 'questa'."
-                " Read skills://simulators to enumerate valid names."
+                " Call get_skill(name='simulators') to enumerate valid names."
             )),
         ],
         command: Annotated[
             str,
             Field(description=(
                 "Command name within the simulator, e.g. 'compile', 'simulate'."
-                " Read skills://simulators to see available commands and params."
+                " Call get_skill(name='simulators') to see available commands and params."
             )),
         ],
         params: Annotated[

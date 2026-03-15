@@ -13,17 +13,18 @@ class SkillsManager:
     def list_skill_names(self) -> list[str]:
         return sorted(f.stem for f in self._dir.glob("*.md") if f.stem != "INDEX")
 
-    def skills_index_resource(self) -> str:
-        """Return the INDEX.md content with resource loading hints."""
+    def skills_index(self) -> str:
+        """Return the INDEX.md content with tool loading hints."""
         index = self._dir / "INDEX.md"
         extra = [
             "",
-            "## Skill Resources",
+            "## Skill Tool",
             "",
-            "- Read `skills://index` first to discover available skills.",
+            "- Call `get_skill()` first to discover available skills.",
         ]
         for name in self.list_skill_names():
-            extra.append(f"- Load `skills://{name}` when that skill is relevant.")
+            extra.append(f"- Call `get_skill(name=\"{name}\")` when that skill is relevant.")
+        extra.append("- Call `get_skill(name=\"simulators\")` for simulator catalog and command templates.")
 
         if index.exists():
             return index.read_text() + "\n" + "\n".join(extra)
@@ -39,6 +40,6 @@ class SkillsManager:
             return (
                 f"Skill '{name}' not found.\n"
                 f"Available skills: {', '.join(available)}\n"
-                "Read skills://index to see the index."
+                "Call get_skill() to see the index."
             )
         return skill_file.read_text()
