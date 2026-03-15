@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import sys
 from pathlib import Path
@@ -42,7 +43,7 @@ from workspace import WorkspaceManager
 from session import workspace_key
 from metadata import init_or_bind_workspace, load_metadata, save_metadata, utc_now_iso
 from remote import ensure_remote_workspace, finalize_remote_sync
-from sync import sync_directory_with_rsync
+from sync import build_remote_workspace_path, sync_directory_with_rsync
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -134,6 +135,24 @@ def _lookup(cfg: ServerConfig, simulator: str, command: str) -> tuple[str, Simul
     return cmd_def.template, sim
 
 
+def _remote_workspace_dir(remote_base_dir: str, topic_id: str) -> Path:
+    return Path(build_remote_workspace_path(remote_base_dir, topic_id)).resolve()
+
+
+def _normalize_remote_tool_result(result: dict, tool_name: str) -> dict:
+    error_text = result.get("error")
+    if isinstance(error_text, str) and error_text.strip():
+        raise RuntimeError(f"{tool_name} failed: {error_text.strip()}")
+
+    content_text = result.get("content")
+    if isinstance(content_text, str):
+        lowered = content_text.lower()
+        if "unknown tool" in lowered or "error" in lowered:
+            raise RuntimeError(f"{tool_name} failed: {content_text.strip()}")
+
+    return result
+
+
 # ── Server factory ─────────────────────────────────────────────────────────────
 
 def build_server(
@@ -167,7 +186,7 @@ def build_server(
         to run_predefined_command."""
         return skills_mgr.load_skill(skill)
 
-    @mcp.tool()
+    @mcp.resource()
     def list_simulators() -> str:
         """List every simulator defined in tools.toml with its command names,
         descriptions, and template parameters.
@@ -218,6 +237,94 @@ def build_server(
             ])
         except Exception as exc:
             return f"[error] {exc}"
+
+    @mcp.tool()
+    def ensure_workspace(
+        topic_id: Annotated[
+            str,
+            Field(description="Stable workspace/topic identifier used as the remote directory key."),
+        ],
+        workspace_name: Annotated[
+            str,
+            Field(description="Human-readable workspace name for metadata and debugging."),
+        ],
+        remote_base_dir: Annotated[
+            str,
+            Field(description="Remote workspace root directory where topic-specific folders are created."),
+        ],
+    ) -> dict:
+        """Ensure the remote workspace directory exists for sync operations."""
+        workspace_dir = _remote_workspace_dir(remote_base_dir, topic_id)
+        src_dir = workspace_dir / "src"
+        src_dir.mkdir(parents=True, exist_ok=True)
+
+        meta_path = workspace_dir / ".workspace_meta.json"
+        previous: dict[str, object] = {}
+        if meta_path.exists():
+            try:
+                previous = json.loads(meta_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                previous = {}
+
+        created_at = previous.get("created_at") or utc_now_iso()
+        metadata = {
+            "topic_id": topic_id,
+            "workspace_name": workspace_name,
+            "remote_base_dir": str(Path(remote_base_dir).resolve()),
+            "workspace_dir": str(workspace_dir),
+            "src_dir": str(src_dir),
+            "created_at": created_at,
+            "updated_at": utc_now_iso(),
+        }
+        meta_path.write_text(
+            json.dumps(metadata, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+        return {
+            "status": "ok",
+            "topic_id": topic_id,
+            "workspace_dir": str(workspace_dir),
+            "src_dir": str(src_dir),
+            "metadata_path": str(meta_path),
+        }
+
+    @mcp.tool()
+    def finalize_sync(
+        topic_id: Annotated[
+            str,
+            Field(description="Stable workspace/topic identifier used as the remote directory key."),
+        ],
+        remote_base_dir: Annotated[
+            Optional[str],
+            Field(description="Optional remote workspace root override. Defaults to /tmp/remote-workspaces."),
+        ] = None,
+    ) -> dict:
+        """Update remote sync metadata after files have been transferred."""
+        base_dir = remote_base_dir or "/tmp/remote-workspaces"
+        workspace_dir = _remote_workspace_dir(base_dir, topic_id)
+        meta_path = workspace_dir / ".workspace_meta.json"
+        if not meta_path.exists():
+            raise RuntimeError(
+                f"Remote workspace metadata is missing for topic_id={topic_id}. "
+                "Call ensure_workspace first."
+            )
+
+        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+        metadata["last_sync_at"] = utc_now_iso()
+        metadata["updated_at"] = utc_now_iso()
+        meta_path.write_text(
+            json.dumps(metadata, ensure_ascii=True, indent=2),
+            encoding="utf-8",
+        )
+
+        return {
+            "status": "ok",
+            "topic_id": topic_id,
+            "workspace_dir": str(workspace_dir),
+            "metadata_path": str(meta_path),
+            "last_sync_at": metadata["last_sync_at"],
+        }
 
     @mcp.tool()
     def bind_workspace(
@@ -292,6 +399,7 @@ def build_server(
             workspace_name=meta.workspace_name,
             remote_base_dir=remote_base_dir,
         )
+        ensure_ret = _normalize_remote_tool_result(ensure_ret, "ensure_workspace")
 
         rsync_ret = sync_directory_with_rsync(
             root_path=str(root),
@@ -309,6 +417,7 @@ def build_server(
                 remote_server_url=meta.remote_server,
                 topic_id=meta.topic_id,
             )
+            finalize_ret = _normalize_remote_tool_result(finalize_ret, "finalize_sync")
             meta.last_sync_at = utc_now_iso()
             save_metadata(root, meta)
 

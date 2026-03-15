@@ -39,8 +39,18 @@ class SSHConfig:
 
 
 @dataclass
+class SyncConfig:
+    ssh_host: str = "localhost"
+    ssh_port: int = 22
+    ssh_user: str = ""
+    ssh_key: str = "~/.ssh/id_rsa"
+    extra_rsync_opts: str = ""
+
+
+@dataclass
 class ServerConfig:
     ssh: SSHConfig
+    sync: SyncConfig
     simulators: dict[str, SimulatorDef]   # keyed by simulator name
 
 
@@ -58,6 +68,15 @@ def load_config(path: str | Path) -> ServerConfig:
         user=ssh_raw.get("user", ""),
         key_file=ssh_raw.get("key_file", "~/.ssh/id_rsa"),
         password=ssh_raw.get("password"),
+    )
+
+    sync_raw = raw.get("sync", {})
+    sync = SyncConfig(
+        ssh_host=sync_raw.get("ssh_host", ssh.host),
+        ssh_port=int(sync_raw.get("ssh_port", ssh.port)),
+        ssh_user=sync_raw.get("ssh_user", ssh.user),
+        ssh_key=sync_raw.get("ssh_key", ssh.key_file),
+        extra_rsync_opts=sync_raw.get("extra_rsync_opts", ""),
     )
 
     # Simulators
@@ -80,4 +99,4 @@ def load_config(path: str | Path) -> ServerConfig:
         )
         simulators[sim.name] = sim
 
-    return ServerConfig(ssh=ssh, simulators=simulators)
+    return ServerConfig(ssh=ssh, sync=sync, simulators=simulators)

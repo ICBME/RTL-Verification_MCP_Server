@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 from typing import Annotated, Literal, Optional
 
@@ -239,16 +240,28 @@ async def sync_workspace(
         "transfer_method": rsync_ret.get("transfer_method"),
     }
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Local workspace bridge MCP server")
+    parser.add_argument("--host", default="127.0.0.1")
+    parser.add_argument("--port", type=int, default=8001)
+    args = parser.parse_args()
+
+    app = mcp.streamable_http_app()
+
+    from starlette.middleware.cors import CORSMiddleware
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["mcp-session-id"],
+    )
+
+    import uvicorn
+
+    uvicorn.run(app, host=args.host, port=args.port)
+
 
 if __name__ == "__main__":
-    app = mcp.streamable_http_app()
-    from starlette.middleware.cors import CORSMiddleware
-    app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_methods=["*"],
-            allow_headers=["*"],
-            expose_headers=["mcp-session-id"],
-        )
-    import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    main()
