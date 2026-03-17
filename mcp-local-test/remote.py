@@ -56,7 +56,7 @@ async def probe_remote_server(
                 raise RuntimeError(f"Unexpected remote health response: {payload}")
     except Exception as exc:
         raise RuntimeError(
-            f"Remote MCP server unreachable: {remote_server_url}"
+            f"Remote API server unreachable: {remote_server_url}"
         ) from exc
 
     _mark_probe_ok(remote_server_url, auth_token)
@@ -88,6 +88,28 @@ async def _post_remote_api(
             raise RuntimeError(f"Unexpected remote API response: {result!r}")
         _mark_probe_ok(remote_server_url, auth_token)
         return result
+
+
+async def execute_remote_command(
+    *,
+    remote_server_url: str,
+    command: str,
+    work_dir: str = ".",
+    use_ssh: bool | None = None,
+    timeout: int = 3600,
+    auth_token: str | None = None,
+) -> dict:
+    return await _post_remote_api(
+        remote_server_url,
+        "/api/commands/execute",
+        {
+            "command": command,
+            "work_dir": work_dir,
+            "use_ssh": use_ssh,
+            "timeout": timeout,
+        },
+        auth_token=auth_token,
+    )
 
 
 async def ensure_remote_workspace(
