@@ -27,14 +27,20 @@ class WorkspaceMetadata:
     version: int
     topic_id: str
     remote_server: str
-    remote_host: str
-    remote_base_dir: str
+    remote_host: Optional[str]
+    remote_base_dir: Optional[str]
     workspace_name: str
     created_at: str
     updated_at: str
     root_fingerprint: Optional[str]
     last_sync_at: Optional[str]
     auth_token: Optional[str] = None
+    gitea_base_url: Optional[str] = None
+    repo_owner: Optional[str] = None
+    repo_name: Optional[str] = None
+    repo_clone_url: Optional[str] = None
+    repo_default_branch: Optional[str] = None
+    last_source_revision: Optional[str] = None
 
     @classmethod
     def new(
@@ -42,15 +48,21 @@ class WorkspaceMetadata:
         *,
         topic_id: str,
         remote_server: str,
-        remote_host: str,
-        remote_base_dir: str,
+        remote_host: Optional[str],
+        remote_base_dir: Optional[str],
         workspace_name: str,
         root_fingerprint: Optional[str] = None,
         auth_token: Optional[str] = None,
+        gitea_base_url: Optional[str] = None,
+        repo_owner: Optional[str] = None,
+        repo_name: Optional[str] = None,
+        repo_clone_url: Optional[str] = None,
+        repo_default_branch: Optional[str] = None,
+        last_source_revision: Optional[str] = None,
     ) -> "WorkspaceMetadata":
         now = utc_now_iso()
         return cls(
-            version=1,
+            version=2,
             topic_id=topic_id,
             remote_server=remote_server,
             remote_host=remote_host,
@@ -61,6 +73,12 @@ class WorkspaceMetadata:
             root_fingerprint=root_fingerprint,
             last_sync_at=None,
             auth_token=auth_token,
+            gitea_base_url=gitea_base_url,
+            repo_owner=repo_owner,
+            repo_name=repo_name,
+            repo_clone_url=repo_clone_url,
+            repo_default_branch=repo_default_branch,
+            last_source_revision=last_source_revision,
         )
 
 
@@ -142,9 +160,14 @@ def init_or_bind_workspace(
     *,
     root_path: str,
     remote_server: str,
-    remote_host: str,
-    remote_base_dir: str,
+    remote_host: Optional[str],
+    remote_base_dir: Optional[str],
     auth_token: Optional[str] = None,
+    gitea_base_url: Optional[str] = None,
+    repo_owner: Optional[str] = None,
+    repo_name: Optional[str] = None,
+    repo_clone_url: Optional[str] = None,
+    repo_default_branch: Optional[str] = None,
     on_existing: OnExisting = "ask",
 ) -> dict:
     root = Path(root_path).resolve()
@@ -194,6 +217,11 @@ def init_or_bind_workspace(
         workspace_name=root.name,
         root_fingerprint=compute_root_fingerprint(root),
         auth_token=auth_token,
+        gitea_base_url=gitea_base_url,
+        repo_owner=repo_owner,
+        repo_name=repo_name,
+        repo_clone_url=repo_clone_url,
+        repo_default_branch=repo_default_branch,
     )
     save_metadata(root, meta)
 

@@ -1,65 +1,58 @@
 # Skill: Local Workspace Bridge
 
 ## Overview
-Use this skill to bind a local project directory and sync it to a remote workspace.
+Use this skill to bind a local project directory to a Gitea-backed workspace repository and keep it synchronized.
 Common values are persisted in `server_root/.mcp/common_config.json`.
 If an argument is omitted, the tool will try to use the saved common value.
 
 ## Tools
 
 ### `bind_workspace`
-Create or update local workspace metadata.
+Create or update local workspace metadata, ensure the remote workspace repo exists, register it with the remote server, and push the initial snapshot.
 
 Required args:
-- None (but `root_path`, `remote_server`, `remote_host`, `remote_base_dir` must be provided either by args or common config).
+- None (but `root_path`, `remote_server`, `gitea_base_url`, and `gitea_token` must be provided either by args or common config).
 
 Optional args:
+- `repo_owner`: Target Gitea user or organization.
+- `repo_default_branch`: Default branch for the workspace repo. Default is `main`.
 - `on_existing`: `ask` | `reuse` | `overwrite` | `fail` (default: `ask`).
 - `auth_token`: Optional token for remote MCP authentication, stored in local metadata.
+- `gitea_token`: Token used for Gitea API calls and git push.
 
 Example:
 ```json
 {
   "root_path": "/home/usr/ICtools",
-  "remote_server": "http://127.0.0.1:18080/mcp",
-  "remote_host": "127.0.0.1",
-  "remote_base_dir": "/tmp/remote-workspaces",
+  "remote_server": "http://127.0.0.1:8999/mcp",
+  "gitea_base_url": "http://127.0.0.1:3000",
+  "repo_owner": "workspace-bot",
+  "repo_default_branch": "main",
+  "gitea_token": "your-gitea-token",
   "on_existing": "reuse"
 }
 ```
 
 ### `sync_workspace`
-Run remote workspace ensure + rsync + optional finalize.
+Compare the local source revision with the remote workspace state and push when they differ.
 
 Required args:
-- None (but `root_path`, `ssh_user` must be provided either by args or common config).
+- None (but `root_path` and `gitea_token` must be provided either by args or common config).
 
 Optional args:
-- `ssh_port`: SSH port (default: `22`).
-- `ssh_key_path`: Optional SSH private key file path.
-- `ssh_key_passphrase`: Optional passphrase for SSH private key.
 - `auth_token`: Optional token for remote MCP authentication (overrides metadata/common config).
-- `transfer_method`: `rsync` | `scp` | `auto` (default `auto`; fallback to scp when rsync is unavailable).
-- `delete`: Enable rsync `--delete` (default: `false`).
-- `dry_run`: Preview only (default: `true`).
-- `remote_base_dir_override`: Override remote base directory from metadata.
+- `gitea_token`: Token used for git push.
 
 Example:
 ```json
 {
   "root_path": "/home/usr/ICtools",
-  "ssh_user": "usr",
-  "ssh_port": 22,
-  "ssh_key_path": "~/.ssh/id_rsa",
-  "ssh_key_passphrase": "your-passphrase",
   "auth_token": "your-remote-token",
-  "transfer_method": "auto",
-  "delete": false,
-  "dry_run": true
+  "gitea_token": "your-gitea-token"
 }
 ```
 
 ## Suggested Flow
 1. Call `bind_workspace` once for a new local directory.
-2. Call `sync_workspace` with `dry_run=true` to verify command behavior.
-3. Call `sync_workspace` with `dry_run=false` to apply changes.
+2. Before a remote simulation run, call `sync_workspace`.
+3. If the local source revision differs from the registered remote revision, the tool performs a git push automatically.

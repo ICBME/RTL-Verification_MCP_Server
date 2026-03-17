@@ -2,24 +2,20 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
-import json
 import logging
 import sys
 from pathlib import Path
 from typing import Annotated, Optional
-from contextvars import ContextVar
 
 from mcp.server.fastmcp import FastMCP
 
 from pydantic import Field
-from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 sys.path.insert(0, str(Path(__file__).parent))
 from config import ServerConfig, SimulatorDef, load_config
 from executor import CommandExecutor, extract_template_params, render_template
 from skills import SkillsManager
+from workspace_api import register_workspace_api_routes
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -67,15 +63,6 @@ def _lookup(cfg: ServerConfig, simulator: str, command: str) -> tuple[str, Simul
             f"Available: {', '.join(c.name for c in sim.commands)}."
         )
     return cmd_def.template, sim
-
-
-def _remote_workspace_dir(remote_base_dir: str, topic_id: str) -> Path:
-    base_dir = Path(remote_base_dir).expanduser().resolve()
-    return (base_dir / topic_id).resolve()
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
 
 
 # ── Server factory ─────────────────────────────────────────────────────────────
@@ -200,86 +187,7 @@ def build_server(
         )
         return result.formatted()
 
-    # ── Local server API surface ──────────────────────────────────────────────
-
-    @mcp.custom_route("/api/health", methods=["GET"], include_in_schema=False)
-    async def api_health(_: Request) -> JSONResponse:
-        return JSONResponse({"status": "ok"})
-
-    @mcp.custom_route("/api/workspaces/ensure", methods=["POST"], include_in_schema=False)
-    async def api_ensure_workspace(request: Request) -> JSONResponse:
-        payload = await request.json()
-        topic_id = str(payload["topic_id"])
-        workspace_name = str(payload["workspace_name"])
-        remote_base_dir = str(payload["remote_base_dir"])
-
-        workspace_dir = _remote_workspace_dir(remote_base_dir, topic_id)
-        src_dir = workspace_dir / "src"
-        src_dir.mkdir(parents=True, exist_ok=True)
-
-        meta_path = workspace_dir / ".workspace_meta.json"
-        previous: dict[str, object] = {}
-        if meta_path.exists():
-            try:
-                previous = json.loads(meta_path.read_text(encoding="utf-8"))
-            except json.JSONDecodeError:
-                previous = {}
-
-        created_at = previous.get("created_at") or _utc_now_iso()
-        metadata = {
-            "topic_id": topic_id,
-            "workspace_name": workspace_name,
-            "remote_base_dir": str(Path(remote_base_dir).expanduser().resolve()),
-            "workspace_dir": str(workspace_dir),
-            "src_dir": str(src_dir),
-            "created_at": created_at,
-            "updated_at": _utc_now_iso(),
-        }
-        meta_path.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
-        return JSONResponse(
-            {
-                "status": "ok",
-                "topic_id": topic_id,
-                "workspace_dir": str(workspace_dir),
-                "src_dir": str(src_dir),
-                "metadata_path": str(meta_path),
-            }
-        )
-
-    @mcp.custom_route("/api/workspaces/finalize", methods=["POST"], include_in_schema=False)
-    async def api_finalize_sync(request: Request) -> JSONResponse:
-        payload = await request.json()
-        topic_id = str(payload["topic_id"])
-        remote_base_dir = str(payload.get("remote_base_dir") or "/tmp/remote-workspaces")
-
-        workspace_dir = _remote_workspace_dir(remote_base_dir, topic_id)
-        meta_path = workspace_dir / ".workspace_meta.json"
-        if not meta_path.exists():
-            return JSONResponse(
-                {
-                    "status": "error",
-                    "error": (
-                        f"Remote workspace metadata is missing for topic_id={topic_id}. "
-                        "Call ensure workspace API first."
-                    ),
-                },
-                status_code=404,
-            )
-
-        metadata = json.loads(meta_path.read_text(encoding="utf-8"))
-        last_sync_at = _utc_now_iso()
-        metadata["last_sync_at"] = last_sync_at
-        metadata["updated_at"] = last_sync_at
-        meta_path.write_text(json.dumps(metadata, ensure_ascii=True, indent=2), encoding="utf-8")
-        return JSONResponse(
-            {
-                "status": "ok",
-                "topic_id": topic_id,
-                "workspace_dir": str(workspace_dir),
-                "metadata_path": str(meta_path),
-                "last_sync_at": last_sync_at,
-            }
-        )
+    register_workspace_api_routes(mcp)
 
     return mcp
 

@@ -24,6 +24,10 @@ class CommonConfig:
     remote_server: Optional[str] = None
     remote_host: Optional[str] = None
     remote_base_dir: Optional[str] = None
+    gitea_base_url: Optional[str] = None
+    repo_owner: Optional[str] = None
+    repo_default_branch: Optional[str] = None
+    gitea_token: Optional[str] = None
     ssh_user: Optional[str] = None
     ssh_port: Optional[int] = None
     ssh_key_path: Optional[str] = None
@@ -53,6 +57,10 @@ class CommonConfig:
         remote_server: Optional[str] = None,
         remote_host: Optional[str] = None,
         remote_base_dir: Optional[str] = None,
+        gitea_base_url: Optional[str] = None,
+        repo_owner: Optional[str] = None,
+        repo_default_branch: Optional[str] = None,
+        gitea_token: Optional[str] = None,
         ssh_user: Optional[str] = None,
         ssh_port: Optional[int] = None,
         ssh_key_path: Optional[str] = None,
@@ -66,6 +74,14 @@ class CommonConfig:
             self.remote_host = remote_host
         if remote_base_dir is not None:
             self.remote_base_dir = remote_base_dir
+        if gitea_base_url is not None:
+            self.gitea_base_url = gitea_base_url
+        if repo_owner is not None:
+            self.repo_owner = repo_owner
+        if repo_default_branch is not None:
+            self.repo_default_branch = repo_default_branch
+        if gitea_token is not None:
+            self.gitea_token = gitea_token
         if ssh_user is not None:
             self.ssh_user = ssh_user
         if ssh_port is not None:

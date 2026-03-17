@@ -95,34 +95,66 @@ async def ensure_remote_workspace(
     remote_server_url: str,
     topic_id: str,
     workspace_name: str,
-    remote_base_dir: str,
+    repo_owner: str,
+    repo_name: str,
+    repo_clone_url: str,
+    repo_default_branch: str,
+    source_revision: str | None,
     auth_token: str | None = None,
 ) -> dict:
     return await _post_remote_api(
         remote_server_url,
-        "/api/workspaces/ensure",
+        "/api/workspaces/register",
         {
             "topic_id": topic_id,
             "workspace_name": workspace_name,
-            "remote_base_dir": remote_base_dir,
+            "repo_owner": repo_owner,
+            "repo_name": repo_name,
+            "repo_clone_url": repo_clone_url,
+            "repo_default_branch": repo_default_branch,
+            "source_revision": source_revision,
         },
         auth_token=auth_token,
     )
+
+
+async def get_remote_workspace(
+    *,
+    remote_server_url: str,
+    topic_id: str,
+    auth_token: str | None = None,
+) -> dict:
+    await probe_remote_server(remote_server_url, auth_token=auth_token)
+
+    headers: dict[str, str] = {}
+    if auth_token:
+        headers["Authorization"] = f"Bearer {auth_token}"
+
+    async with httpx.AsyncClient(
+        headers=headers or None,
+        trust_env=False,
+    ) as client:
+        response = await client.get(f"{_api_base_url(remote_server_url)}/api/workspaces/{topic_id}")
+        response.raise_for_status()
+        result = response.json()
+        if not isinstance(result, dict):
+            raise RuntimeError(f"Unexpected remote API response: {result!r}")
+        _mark_probe_ok(remote_server_url, auth_token)
+        return result
 
 
 async def finalize_remote_sync(
     *,
     remote_server_url: str,
     topic_id: str,
-    remote_base_dir: str,
+    source_revision: str | None,
     auth_token: str | None = None,
 ) -> dict:
     return await _post_remote_api(
         remote_server_url,
-        "/api/workspaces/finalize",
+        f"/api/workspaces/{topic_id}/sync",
         {
-            "topic_id": topic_id,
-            "remote_base_dir": remote_base_dir,
+            "source_revision": source_revision,
         },
         auth_token=auth_token,
     )
