@@ -5,6 +5,8 @@ from typing import Any, Optional
 
 import httpx
 
+from http_client import build_async_client
+
 
 class GiteaApiError(RuntimeError):
     pass
@@ -62,14 +64,13 @@ class GiteaClient:
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._token = token
-        self._client = httpx.AsyncClient(
+        self._client = build_async_client(
             base_url=self._base_url,
             headers={
                 "Authorization": f"token {token}",
                 "Accept": "application/json",
             },
             timeout=timeout,
-            trust_env=False,
         )
         self._cached_user: Optional[str] = None
 

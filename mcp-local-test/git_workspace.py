@@ -23,6 +23,27 @@ class GitSyncError(RuntimeError):
     pass
 
 
+def workspace_git_config_path(root_path: str) -> Path:
+    root = Path(root_path).resolve()
+    return root / ".mcp" / "gitconfig"
+
+
+def write_workspace_git_config(
+    *,
+    root_path: str,
+    access_token: str,
+) -> str:
+    path = workspace_git_config_path(root_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "[http]\n"
+        f"\textraHeader = Authorization: token {access_token}\n",
+        encoding="utf-8",
+    )
+    os.chmod(path, 0o600)
+    return str(path)
+
+
 def _run_command(
     cmd: list[str],
     *,
@@ -40,8 +61,10 @@ def _run_command(
     )
 
 
-def _git_base_cmd(auth_token: Optional[str]) -> list[str]:
+def _git_base_cmd(auth_token: Optional[str], git_config_path: Optional[str] = None) -> list[str]:
     cmd = ["git"]
+    if git_config_path:
+        cmd.extend(["-c", f"include.path={git_config_path}"])
     if auth_token:
         cmd.extend(["-c", f"http.extraHeader=Authorization: token {auth_token}"])
     return cmd
@@ -109,8 +132,11 @@ def _copy_tree_with_excludes(src_root: Path, dst_root: Path, patterns: list[str]
             shutil.copy2(current_path / filename, target_dir / filename)
 
 
-def _git_has_changes(repo_dir: Path, auth_token: Optional[str]) -> bool:
-    proc = _run_command(_git_base_cmd(auth_token) + ["status", "--porcelain"], cwd=repo_dir)
+def _git_has_changes(repo_dir: Path, auth_token: Optional[str], git_config_path: Optional[str]) -> bool:
+    proc = _run_command(
+        _git_base_cmd(auth_token, git_config_path) + ["status", "--porcelain"],
+        cwd=repo_dir,
+    )
     if proc.returncode != 0:
         raise GitSyncError(f"git status failed:\nSTDOUT:\n{proc.stdout}\nSTDERR:\n{proc.stderr}")
     return bool(proc.stdout.strip())
@@ -173,6 +199,7 @@ def sync_directory_to_repo(
     remote_url: str,
     branch: str = "main",
     auth_token: Optional[str] = None,
+    git_config_path: Optional[str] = None,
     author_name: str = "MCP Workspace Bot",
     author_email: str = "mcp-workspace@example.com",
     commit_message: str = "Sync workspace",
@@ -199,7 +226,7 @@ def sync_directory_to_repo(
     commands: list[str] = []
     with tempfile.TemporaryDirectory(prefix="mcp-git-sync-") as td:
         repo_dir = Path(td) / "repo"
-        clone_cmd = _git_base_cmd(auth_token) + ["clone", remote_url, str(repo_dir)]
+        clone_cmd = _git_base_cmd(auth_token, git_config_path) + ["clone", remote_url, str(repo_dir)]
         commands.append(" ".join(shlex.quote(x) for x in clone_cmd))
         clone_proc = _run_command(clone_cmd)
         if clone_proc.returncode != 0:
@@ -208,7 +235,7 @@ def sync_directory_to_repo(
                 f"STDOUT:\n{clone_proc.stdout}\nSTDERR:\n{clone_proc.stderr}"
             )
 
-        checkout_cmd = _git_base_cmd(auth_token) + ["checkout", "-B", branch]
+        checkout_cmd = _git_base_cmd(auth_token, git_config_path) + ["checkout", "-B", branch]
         commands.append(" ".join(shlex.quote(x) for x in checkout_cmd))
         checkout_proc = _run_command(checkout_cmd, cwd=repo_dir)
         if checkout_proc.returncode != 0:
@@ -220,7 +247,7 @@ def sync_directory_to_repo(
         _clear_worktree(repo_dir)
         _copy_tree_with_excludes(root, repo_dir, excludes)
 
-        add_cmd = _git_base_cmd(auth_token) + ["add", "-A"]
+        add_cmd = _git_base_cmd(auth_token, git_config_path) + ["add", "-A"]
         commands.append(" ".join(shlex.quote(x) for x in add_cmd))
         add_proc = _run_command(add_cmd, cwd=repo_dir)
         if add_proc.returncode != 0:
@@ -229,7 +256,7 @@ def sync_directory_to_repo(
                 f"STDOUT:\n{add_proc.stdout}\nSTDERR:\n{add_proc.stderr}"
             )
 
-        has_changes = _git_has_changes(repo_dir, auth_token)
+        has_changes = _git_has_changes(repo_dir, auth_token, git_config_path)
         if not has_changes:
             return {
                 "status": "ok",
@@ -241,7 +268,7 @@ def sync_directory_to_repo(
                 "message": "No changes to commit.",
             }
 
-        commit_cmd = _git_base_cmd(auth_token) + [
+        commit_cmd = _git_base_cmd(auth_token, git_config_path) + [
             "-c",
             f"user.name={author_name}",
             "-c",
@@ -269,7 +296,7 @@ def sync_directory_to_repo(
                 f"STDOUT:\n{commit_proc.stdout}\nSTDERR:\n{commit_proc.stderr}"
             )
 
-        push_cmd = _git_base_cmd(auth_token) + ["push", "origin", f"HEAD:refs/heads/{branch}"]
+        push_cmd = _git_base_cmd(auth_token, git_config_path) + ["push", "origin", f"HEAD:refs/heads/{branch}"]
         commands.append(" ".join(shlex.quote(x) for x in push_cmd))
         push_proc = _run_command(push_cmd, cwd=repo_dir)
         if push_proc.returncode != 0:

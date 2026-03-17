@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import time
-from typing import Any
 
-import httpx
+from http_client import build_async_client
 
 
 _PROBE_TTL_SECONDS = 10.0
@@ -45,9 +44,8 @@ async def probe_remote_server(
         headers["Authorization"] = f"Bearer {auth_token}"
 
     try:
-        async with httpx.AsyncClient(
+        async with build_async_client(
             headers=headers or None,
-            trust_env=False,
         ) as client:
             response = await client.get(f"{_api_base_url(remote_server_url)}/api/health")
             response.raise_for_status()
@@ -74,9 +72,8 @@ async def _post_remote_api(
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
 
-    async with httpx.AsyncClient(
+    async with build_async_client(
         headers=headers or None,
-        trust_env=False,
     ) as client:
         response = await client.post(
             f"{_api_base_url(remote_server_url)}{path}",
@@ -117,10 +114,6 @@ async def ensure_remote_workspace(
     remote_server_url: str,
     topic_id: str,
     workspace_name: str,
-    repo_owner: str,
-    repo_name: str,
-    repo_clone_url: str,
-    repo_default_branch: str,
     source_revision: str | None,
     auth_token: str | None = None,
 ) -> dict:
@@ -130,10 +123,6 @@ async def ensure_remote_workspace(
         {
             "topic_id": topic_id,
             "workspace_name": workspace_name,
-            "repo_owner": repo_owner,
-            "repo_name": repo_name,
-            "repo_clone_url": repo_clone_url,
-            "repo_default_branch": repo_default_branch,
             "source_revision": source_revision,
         },
         auth_token=auth_token,
@@ -152,9 +141,8 @@ async def get_remote_workspace(
     if auth_token:
         headers["Authorization"] = f"Bearer {auth_token}"
 
-    async with httpx.AsyncClient(
+    async with build_async_client(
         headers=headers or None,
-        trust_env=False,
     ) as client:
         response = await client.get(f"{_api_base_url(remote_server_url)}/api/workspaces/{topic_id}")
         response.raise_for_status()

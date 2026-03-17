@@ -40,6 +40,8 @@ class WorkspaceMetadata:
     repo_name: Optional[str] = None
     repo_clone_url: Optional[str] = None
     repo_default_branch: Optional[str] = None
+    repo_access_token: Optional[str] = None
+    git_config_path: Optional[str] = None
     last_source_revision: Optional[str] = None
 
     @classmethod
@@ -58,6 +60,8 @@ class WorkspaceMetadata:
         repo_name: Optional[str] = None,
         repo_clone_url: Optional[str] = None,
         repo_default_branch: Optional[str] = None,
+        repo_access_token: Optional[str] = None,
+        git_config_path: Optional[str] = None,
         last_source_revision: Optional[str] = None,
     ) -> "WorkspaceMetadata":
         now = utc_now_iso()
@@ -78,6 +82,8 @@ class WorkspaceMetadata:
             repo_name=repo_name,
             repo_clone_url=repo_clone_url,
             repo_default_branch=repo_default_branch,
+            repo_access_token=repo_access_token,
+            git_config_path=git_config_path,
             last_source_revision=last_source_revision,
         )
 
@@ -168,6 +174,8 @@ def init_or_bind_workspace(
     repo_name: Optional[str] = None,
     repo_clone_url: Optional[str] = None,
     repo_default_branch: Optional[str] = None,
+    repo_access_token: Optional[str] = None,
+    git_config_path: Optional[str] = None,
     on_existing: OnExisting = "ask",
 ) -> dict:
     root = Path(root_path).resolve()
@@ -222,6 +230,8 @@ def init_or_bind_workspace(
         repo_name=repo_name,
         repo_clone_url=repo_clone_url,
         repo_default_branch=repo_default_branch,
+        repo_access_token=repo_access_token,
+        git_config_path=git_config_path,
     )
     save_metadata(root, meta)
 

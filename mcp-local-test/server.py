@@ -93,7 +93,7 @@ def _resolve_remote_server(common: CommonConfig) -> str:
 
 
 async def _maybe_sync_bound_workspace(common: CommonConfig, auth_token: Optional[str]) -> dict | None:
-    if not common.root_path or not common.gitea_token:
+    if not common.root_path:
         return None
 
     root = Path(common.root_path).resolve()
@@ -103,7 +103,6 @@ async def _maybe_sync_bound_workspace(common: CommonConfig, auth_token: Optional
 
     return await ensure_workspace_synced(
         root_path=str(root),
-        gitea_token=common.gitea_token,
         remote_auth_token=auth_token or common.auth_token or meta.auth_token,
     )
 
@@ -234,25 +233,9 @@ async def bind_workspace(
         Optional[str],
         Field(description="Remote HTTP API base URL. If omitted, use common config."),
     ] = None,
-    gitea_base_url: Annotated[
-        Optional[str],
-        Field(description="Gitea base URL, for example http://127.0.0.1:3000."),
-    ] = None,
-    repo_owner: Annotated[
-        Optional[str],
-        Field(description="Target Gitea user or organization that owns workspace repos."),
-    ] = None,
-    repo_default_branch: Annotated[
-        Optional[str],
-        Field(description="Default branch for workspace repositories. Defaults to 'main'."),
-    ] = None,
     auth_token: Annotated[
         Optional[str],
         Field(description="Optional auth token for remote HTTP API. Stored in metadata."),
-    ] = None,
-    gitea_token: Annotated[
-        Optional[str],
-        Field(description="Gitea access token used for repo management and git push."),
     ] = None,
     on_existing: Annotated[
         Literal["ask", "reuse", "overwrite", "fail"],
@@ -262,19 +245,11 @@ async def bind_workspace(
     common = CommonConfig.load()
     resolved_root = require_value("root_path", root_path or common.root_path)
     resolved_remote_server = require_value("remote_server", remote_server or common.remote_server)
-    resolved_gitea_base_url = require_value("gitea_base_url", gitea_base_url or common.gitea_base_url)
-    resolved_gitea_token = require_value("gitea_token", gitea_token or common.gitea_token)
-    resolved_repo_owner = repo_owner or common.repo_owner
-    resolved_repo_default_branch = repo_default_branch or common.repo_default_branch or "main"
     resolved_auth_token = auth_token or common.auth_token
 
     result = await bind_workspace_with_repo(
         root_path=resolved_root,
         remote_server=resolved_remote_server,
-        gitea_base_url=resolved_gitea_base_url,
-        gitea_token=resolved_gitea_token,
-        repo_owner=resolved_repo_owner,
-        repo_default_branch=resolved_repo_default_branch,
         remote_auth_token=resolved_auth_token,
         on_existing=on_existing,
     )
@@ -282,10 +257,6 @@ async def bind_workspace(
     common.merge_updates(
         root_path=resolved_root,
         remote_server=resolved_remote_server,
-        gitea_base_url=resolved_gitea_base_url,
-        repo_owner=resolved_repo_owner,
-        repo_default_branch=resolved_repo_default_branch,
-        gitea_token=resolved_gitea_token,
         auth_token=resolved_auth_token,
     ).save()
     return result
@@ -301,20 +272,14 @@ async def sync_workspace(
         Optional[str],
         Field(description="Optional auth token for remote HTTP API; overrides metadata."),
     ] = None,
-    gitea_token: Annotated[
-        Optional[str],
-        Field(description="Gitea access token used for git push. If omitted, use common config."),
-    ] = None,
 ) -> dict:
     common = CommonConfig.load()
     resolved_root = require_value("root_path", root_path or common.root_path)
     resolved_auth_token = auth_token or common.auth_token
-    resolved_gitea_token = require_value("gitea_token", gitea_token or common.gitea_token)
 
     try:
         result = await ensure_workspace_synced(
             root_path=resolved_root,
-            gitea_token=resolved_gitea_token,
             remote_auth_token=resolved_auth_token,
         )
     except Exception as exc:
@@ -325,7 +290,6 @@ async def sync_workspace(
 
     common.merge_updates(
         root_path=resolved_root,
-        gitea_token=resolved_gitea_token,
         auth_token=resolved_auth_token,
     ).save()
     return {

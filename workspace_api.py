@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from gitea_workspace import GiteaWorkspaceAdmin, GiteaWorkspaceConfig
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
@@ -43,23 +44,42 @@ async def api_health(_: Request) -> JSONResponse:
 async def api_register_workspace(request: Request) -> JSONResponse:
     payload = await request.json()
     topic_id = str(payload["topic_id"])
+    workspace_name = str(payload["workspace_name"])
     previous = _load_record(topic_id) or {}
+    cfg = GiteaWorkspaceConfig.from_env()
+
+    async with GiteaWorkspaceAdmin(cfg) as admin:
+        repo_result = await admin.ensure_repo(topic=workspace_name, topic_id=topic_id)
+        repo = repo_result["repo"]
+        access_token = previous.get("repo_access_token")
+        if not access_token:
+            token_info = await admin.create_access_token(
+                token_name=f"workspace-{topic_id}"
+            )
+            access_token = token_info.get("sha1")
 
     created_at = str(previous.get("created_at") or _utc_now_iso())
     record = {
         "topic_id": topic_id,
-        "workspace_name": str(payload["workspace_name"]),
-        "repo_owner": str(payload["repo_owner"]),
-        "repo_name": str(payload["repo_name"]),
-        "repo_clone_url": str(payload["repo_clone_url"]),
-        "repo_default_branch": str(payload.get("repo_default_branch") or "main"),
+        "workspace_name": workspace_name,
+        "repo_owner": str((repo.get("owner") or {}).get("login") or cfg.owner),
+        "repo_name": str(repo["name"]),
+        "repo_clone_url": str(repo.get("clone_url") or ""),
+        "repo_default_branch": str(repo.get("default_branch") or cfg.default_branch),
+        "repo_access_token": access_token,
         "source_revision": payload.get("source_revision"),
         "created_at": created_at,
         "updated_at": _utc_now_iso(),
         "last_sync_at": previous.get("last_sync_at"),
     }
     _save_record(topic_id, record)
-    return JSONResponse({"status": "ok", "workspace": record})
+    return JSONResponse(
+        {
+            "status": "ok",
+            "repo_status": repo_result["status"],
+            "workspace": record,
+        }
+    )
 
 
 async def api_get_workspace(request: Request) -> JSONResponse:

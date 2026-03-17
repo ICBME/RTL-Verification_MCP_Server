@@ -13,6 +13,5 @@ mcp-local-test/uv.lock
 
 # Virtual environments
 .venv
-
 mcp-local-test/.mcp/
-ssl/
+ssl
